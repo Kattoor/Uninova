@@ -2,7 +2,7 @@
   "name": "Uninova",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "main.js",
   "dependencies": {
     "body-parser": "^1.15.0",
     "crypto-js": "^3.1.6",
@@ -12,7 +12,8 @@
   },
   "devDependencies": {},
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node main"
   },
   "keywords": [],
   "author": "",

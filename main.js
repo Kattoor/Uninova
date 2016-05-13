@@ -1,6 +1,8 @@
 /// <reference path="tsdefs/require.d.ts" />
 /// <reference path="tsdefs/rx.d.ts" />
 "use strict";
+var server_port = process.env.OPENSHIFT_NODEJS_PORT || 8080;
+var server_ip_address = process.env.OPENSHIFT_NODEJS_IP || '127.0.0.1';
 var userManager_1 = require("./dal/userManager");
 var user_1 = require("./model/user");
 var express = require('express');
@@ -18,7 +20,7 @@ userManager.connect().subscribe(function () {
     app.post('/api/user/saveData', function (req, res) { return userManager.saveData(req.body.token, JSON.parse(req.body.buildings)).subscribe(function (data) { return res.json(data); }); });
     app.get('/api/user/dummy', function (req, res) { return (userManager.getDummyData(req.query.type).subscribe(function (text) { return res.send(text); })); });
     app.post('/api/user/getNeighbours', function (req, res) { return (userManager.getNeighbours(req.body.token).subscribe(function (neighbours) { return res.send(neighbours); })); });
-    app.listen(3000, function () { return console.log("Server listening on port 3000"); });
+    app.listen(server_port, server_ip_address, function () { return console.log("Server listening"); });
 });
 function deleteAll() {
     userManager.readUsers().subscribe(function (result) {

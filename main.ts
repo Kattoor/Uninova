@@ -1,6 +1,9 @@
 /// <reference path="tsdefs/require.d.ts" />
 /// <reference path="tsdefs/rx.d.ts" />
 
+var server_port = process.env.OPENSHIFT_NODEJS_PORT || 8080;
+var server_ip_address = process.env.OPENSHIFT_NODEJS_IP ||'127.0.0.1';
+
 import {UserManager} from "./dal/userManager";
 import {User} from "./model/user";
 import Observable = Rx.Observable;
@@ -26,7 +29,7 @@ var userManager: UserManager = new UserManager();
     app.get('/api/user/dummy', (req, res) => (userManager.getDummyData(req.query.type).subscribe((text) => res.send(text))));
     app.post('/api/user/getNeighbours', (req, res) => (userManager.getNeighbours(req.body.token).subscribe((neighbours) => res.send(neighbours))));
 
-    app.listen(3000, () => console.log("Server listening on port 3000"));
+    app.listen(server_port, server_ip_address, () => console.log("Server listening"));
 
 });
 
