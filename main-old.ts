@@ -55,7 +55,7 @@ var dayInfo: DayInfo = new DayInfo("0", [
     app.post('/api/user/saveDay', (req, res) => (userManager.dayPassed(req.body.token, new DayInfo(JSON.parse(req.body.dayInfo).day, JSON.parse(req.body.dayInfo).buildingHistories)).subscribe(() => res.send("ok"))));
     app.post('/api/user/getHistory', (req, res) => (userManager.getHistory(req.body.token).subscribe((history) => res.send(history))));
     app.listen(server_port, server_ip_address, () => console.log("Server listening"));
-
+    
 });
 
 function deleteAll() {

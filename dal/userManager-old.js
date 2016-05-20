@@ -177,4 +177,4 @@ var UserManager = (function () {
     return UserManager;
 }());
 exports.UserManager = UserManager;
-//# sourceMappingURL=userManager-old.jsd.js.map
+//# sourceMappingURL=userManager-old.js.map

@@ -52,5 +52,4 @@ var userManager: UserManager = new UserManager();
     app.post('/api/user/savedata', (req, res) => userManager.saveData(req.body.token, JSON.parse(req.body.buildings)).subscribe(() => res.json("hi")));
 
     app.listen(server_port, server_ip_address, () => console.log("Server listening"));
-
 });
