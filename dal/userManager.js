@@ -5,6 +5,7 @@ var ReactiveX = require('rx'); // don't delete!
 var user_1 = require("../model/user");
 var Observable = ReactiveX.Observable;
 var TokenManager_1 = require("../TokenManager");
+var storm_1 = require("../model/storm");
 var UserManager = (function () {
     function UserManager() {
         this.mongoClient = require('mongodb').MongoClient;
@@ -15,127 +16,220 @@ var UserManager = (function () {
         var observable = Observable.fromPromise(this.mongoClient.connect(this.url));
         observable.subscribe(function (db) {
             _this.db = db;
-            _this.collection = db.collection("users");
+            _this.userCollection = db.collection("users");
+            _this.historyCollection = db.collection("history");
         });
         return observable;
     };
-    UserManager.prototype.createUser = function (user) {
+    /*  createUser
+        We try to find a user with the corresponding username in the collection to see if the username is already taken.
+        If not, we create a new user object and set it's registeredNumber value to the current amount of users in the collection.
+        This user object gets inserted in the collection as a new document.
+        Finally we pass the user object to the TokenManager to generate a token which will be passed to the client for future authentication.
+     */
+    UserManager.prototype.createUser = function (username, password) {
         var _this = this;
         return Observable.create(function (observer) {
-            _this.readUser(user.username).subscribe(function (readUser) {
+            _this.readUser(username).subscribe(function (readUser) {
                 if (readUser == null) {
-                    Observable.fromPromise(_this.collection.count({})).subscribe(function (count) {
-                        user.registeredNumber = count;
-                        Observable.fromPromise(_this.collection.insertOne(user)).subscribe(function () { return observer.onNext(true); });
+                    Observable.fromPromise(_this.userCollection.count({})).subscribe(function (count) {
+                        var storms = _this.getRandomStorms();
+                        var user = new user_1.User(username, password, "1", count, false, [], storms);
+                        Observable.fromPromise(_this.userCollection.insertOne(user)).subscribe(function () {
+                            return observer.onNext(TokenManager_1.TokenManager.tokenify(user));
+                        });
                     });
                 }
                 else
-                    observer.onNext(false);
+                    observer.onNext("");
             });
         });
     };
+    /*  login
+        We read the user from the collection by their username.
+        If the passwords match we return the user's token for future authentication, otherwise an empty string.
+     */
+    UserManager.prototype.login = function (username, password) {
+        var _this = this;
+        return Observable.create(function (observer) {
+            return _this.readUser(username).subscribe(function (user) {
+                return observer.onNext(user != null && user.password.localeCompare(password) == 0 ? TokenManager_1.TokenManager.tokenify(user) : "");
+            });
+        });
+    };
+    //First: save received buildings to user's history
+    //Second: change bassins and mortality and such
+    //Third: incrDayForUser
+    UserManager.prototype.nextDay = function (token, buildings) {
+        var _this = this;
+        return Observable.create(function (observer) {
+            var username = TokenManager_1.TokenManager.getField(token, "username");
+            if (TokenManager_1.TokenManager.validate(token)) {
+                Observable.fromPromise(_this.userCollection.find({ username: username }).limit(1).next()).map(function (doc) { return doc.day; }).subscribe(function (currentDay) {
+                    _this.saveAsHistoryFor(username, currentDay, JSON.parse(buildings)).subscribe(// save history
+                    function () {
+                        _this.updateUserBuildings(token, JSON.parse(buildings)).subscribe(// save user
+                        function () {
+                            // change bassins and mortality and such
+                            var parsedBuildings = JSON.parse(buildings);
+                            if (parsedBuildings != null && parsedBuildings.length > 0) {
+                                for (var _i = 0, parsedBuildings_1 = parsedBuildings; _i < parsedBuildings_1.length; _i++) {
+                                    var building = parsedBuildings_1[_i];
+                                    if (building.bassins != null && building.bassins.length > 0) {
+                                        for (var _a = 0, _b = building.bassins; _a < _b.length; _a++) {
+                                            var bassin = _b[_a];
+                                            bassin.amountOfFishes -= _this.calculateFatalities(bassin);
+                                        }
+                                    }
+                                }
+                            }
+                            console.log("oh hello is it me you're looking for");
+                            _this.incrDayForUser(username, +currentDay).subscribe(function () { return observer.onNext(parsedBuildings); });
+                        });
+                    });
+                });
+            }
+            else
+                observer.onNext(null);
+        });
+    };
+    //gets called when user adds buildings in overview then hits escape
     UserManager.prototype.saveData = function (token, buildings) {
         var _this = this;
         return Observable.create(function (observer) {
             if (TokenManager_1.TokenManager.validate(token)) {
                 var requestingUsername = TokenManager_1.TokenManager.getField(token, "username");
-                Observable.fromPromise(_this.collection.updateOne({ username: requestingUsername }, { $set: { buildings: buildings } }, {})).subscribe(function (result) { return observer.onNext(result.modifiedCount); });
+                Observable.fromPromise(_this.userCollection.updateOne({ username: requestingUsername }, { $set: { buildings: buildings } }, {})).subscribe(function (result) { return observer.onNext(result.modifiedCount); });
             }
         });
     };
-    UserManager.prototype.readUser = function (username) {
-        return Observable.fromPromise(this.collection.find({ username: username }).limit(1).next()).map(function (doc) {
-            return doc == null ? null : new user_1.User(doc.username, doc.password, doc.registeredNumber, doc.hasAquaSmart, doc.buildings, doc._id);
+    UserManager.prototype.incrDayForUser = function (username, currentDay) {
+        var _this = this;
+        return Observable.create(function (observer) {
+            Observable.fromPromise(_this.userCollection.updateOne({ username: username }, { $set: { day: currentDay + 1 } }, {})).subscribe(function (result) {
+                return observer.onNext(result);
+            } //result is omitted
+             //result is omitted
+            );
         });
     };
-    UserManager.prototype.readUsers = function () {
+    //Does history already exist for this user?
+    //  no -> create one and insert data we received
+    //  yes -> insert data we received in 'days' collection of user's history
+    UserManager.prototype.saveAsHistoryFor = function (username, currentDay, buildings) {
         var _this = this;
-        var users = [];
         return Observable.create(function (observer) {
-            return _this.collection.find({}).forEach(function (document) {
-                return users.push(document);
-            }, function () {
-                return observer.onNext(users);
+            var dayInfo = {};
+            dayInfo["day"] = currentDay;
+            dayInfo["buildingHistories"] = buildings;
+            Observable.fromPromise(_this.historyCollection.count({ username: username })).subscribe(function (count) {
+                if (count == 0) {
+                    Observable.fromPromise(_this.historyCollection.insertOne({ username: username, days: [dayInfo] })).subscribe(function () {
+                        console.log("Finished creating");
+                        observer.onNext("sup");
+                    });
+                }
+                else {
+                    Observable.fromPromise(_this.historyCollection.findOneAndUpdate({ username: username }, { $push: { days: dayInfo } })).subscribe(function () {
+                        console.log("Finished inserting");
+                        observer.onNext(true);
+                    });
+                }
             });
         });
     };
-    UserManager.prototype.deleteUser = function (username) {
-        this.collection.deleteMany({ username: username });
-    };
-    UserManager.prototype.login = function (user) {
-        var _this = this;
-        return Observable.create(function (observer) {
-            return _this.readUser(user.username).subscribe(function (readUser) {
-                return observer.onNext(readUser != null && user.password.localeCompare(readUser.password) == 0 ? TokenManager_1.TokenManager.tokenify(readUser) : null);
-            });
-        });
-    };
-    /*public addBuilding(token: string, building: Building): Observable<boolean> {
-        //var name: string = TokenManager.getField(token, "name");
-        if (TokenManager.validate(token)) {
-
-        }
-        
-
-    }*/
-    UserManager.prototype.getDummyData = function (type) {
-        var collection = this.db.collection("dummydata");
-        return Observable.fromPromise(collection.find({ type: type }).limit(1).next()).map(function (doc) {
-            return doc == null ? null : doc.content;
-        });
-    };
-    UserManager.prototype.getDataFromRegisteredNumber = function (token, registeredNumber) {
+    /*  getData
+        This method gets invoked when the user is logged in.
+        Returns the user's document from the database which also contains buildings, bassins and storms.
+     */
+    UserManager.prototype.getData = function (token) {
         var _this = this;
         return Observable.create(function (observer) {
             if (TokenManager_1.TokenManager.validate(token)) {
-                Observable.fromPromise(_this.collection.find({ registeredNumber: registeredNumber }).limit(1).next()).map(function (doc) {
-                    return doc == null ? null : new user_1.User(doc.username, "nice try ;)", doc.registeredNumber, doc.hasAquaSmart, doc.buildings, doc._id);
-                }).subscribe(function (user) { return observer.onNext(user); });
-            }
-        });
-    };
-    UserManager.prototype.getData = function (token, from) {
-        var _this = this;
-        return Observable.create(function (observer) {
-            if (TokenManager_1.TokenManager.validate(token)) {
-                var requestingUsername = TokenManager_1.TokenManager.getField(token, "username");
-                _this.readUser(requestingUsername).subscribe(function (requestingUser) {
-                    if (requestingUser.hasAquaSmart)
-                        _this.readUser(from).subscribe(function (requestedUser) { return observer.onNext(requestedUser); });
-                    else
-                        observer.onNext("User hasn't got AquaSmart system");
+                var username = TokenManager_1.TokenManager.getField(token, "username");
+                _this.readUser(username).subscribe(function (user) {
+                    return observer.onNext(user);
                 });
             }
+            else
+                observer.onNext(null);
         });
     };
-    UserManager.prototype.getNeighbours = function (token) {
+    UserManager.prototype.getNeighbourData = function (token) {
         var _this = this;
         return Observable.create(function (observer) {
             if (TokenManager_1.TokenManager.validate(token)) {
                 var registeredNumber = TokenManager_1.TokenManager.getField(token, "registeredNumber");
                 var neighbours = [];
-                Observable.create(function (observerNeighbour1) {
-                    if ((+registeredNumber) > 0)
-                        _this.getDataFromRegisteredNumber(token, (+registeredNumber) - 1).subscribe(function (user) { return observerNeighbour1.onNext(user); });
+                Observable.create(function (observerLeftNeighbour) {
+                    if (+registeredNumber > 0)
+                        _this.getDataFromRegisteredNumber(registeredNumber - 1).subscribe(function (leftNeighbour) { return observerLeftNeighbour.onNext(leftNeighbour); });
                     else
-                        observerNeighbour1.onNext(null);
-                }).subscribe(function (user) {
-                    neighbours[0] = user;
-                    Observable.fromPromise(_this.collection.count({})).subscribe(function (count) {
-                        if ((+registeredNumber) < (count - 1)) {
-                            _this.getDataFromRegisteredNumber(token, (+registeredNumber) + 1).subscribe(function (user) {
-                                neighbours[1] = user;
-                                observer.onNext(neighbours);
-                            });
-                        }
-                        else {
-                            neighbours[1] = null;
-                            observer.onNext(neighbours);
-                        }
+                        observerLeftNeighbour.onNext(null);
+                }).subscribe(function (leftNeighbour) {
+                    neighbours[0] = leftNeighbour;
+                    Observable.create(function (observerRightNeighbour) {
+                        Observable.fromPromise(_this.userCollection.count({})).subscribe(function (count) {
+                            if (+registeredNumber < count - 1)
+                                _this.getDataFromRegisteredNumber(registeredNumber + 1).subscribe(function (rightNeighbour) { return observerRightNeighbour.onNext(rightNeighbour); });
+                            else
+                                observerRightNeighbour.onNext(null);
+                        });
+                    }).subscribe(function (rightNeighbour) {
+                        neighbours[1] = rightNeighbour;
+                        observer.onNext(neighbours);
                     });
                 });
             }
         });
+    };
+    UserManager.prototype.updateUserBuildings = function (token, buildings) {
+        var _this = this;
+        return Observable.create(function (observer) {
+            if (TokenManager_1.TokenManager.validate(token)) {
+                var username = TokenManager_1.TokenManager.getField(token, "username");
+                Observable.fromPromise(_this.userCollection.updateOne({ username: username }, { $set: { buildings: buildings } }, {})).subscribe(function (result) { return observer.onNext(true); });
+            }
+            else
+                observer.onNext(false);
+        });
+    };
+    UserManager.prototype.readUser = function (username) {
+        return Observable.fromPromise(this.userCollection.find({ username: username }).limit(1).next()).map(function (doc) {
+            return doc == null ? null : new user_1.User(doc.username, doc.password, doc.day, doc.registeredNumber, doc.hasAquaSmart, doc.buildings, doc.storms, doc._id);
+        });
+    };
+    UserManager.prototype.getRandomStorms = function () {
+        var storms = [];
+        var amountOfStorms = Math.floor(Math.random() * 5) + 1; // 1 to 6 (inclusive) storms a year
+        var randomAlreadyTaken;
+        while (storms.length < amountOfStorms) {
+            randomAlreadyTaken = false;
+            var randomDay = Math.floor(Math.random() * 364) + 1;
+            for (var i = 0; i < storms.length; i++) {
+                if (storms[i].day == randomDay) {
+                    randomAlreadyTaken = true;
+                    break;
+                }
+            }
+            if (randomAlreadyTaken)
+                continue;
+            var randomGravity = Math.floor(Math.random() * 9) + 1;
+            storms.push(new storm_1.Storm(randomGravity, randomDay));
+        }
+        return storms;
+    };
+    UserManager.prototype.getDataFromRegisteredNumber = function (registeredNumber) {
+        var _this = this;
+        return Observable.create(function (observer) {
+            Observable.fromPromise(_this.userCollection.find({ registeredNumber: registeredNumber }).limit(1).next()).map(function (doc) {
+                return doc == null ? null : new user_1.User(doc.username, "nice try ;)", doc.day, doc.registeredNumber, doc.hasAquaSmart, doc.buildings, doc._id);
+            }).subscribe(function (user) { return observer.onNext(user); });
+        });
+    };
+    UserManager.prototype.calculateFatalities = function (bassin) {
+        //todo average weight & feeding ook
+        return 4;
     };
     return UserManager;
 }());
