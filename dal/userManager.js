@@ -33,8 +33,8 @@ var UserManager = (function () {
             _this.readUser(username).subscribe(function (readUser) {
                 if (readUser == null) {
                     Observable.fromPromise(_this.userCollection.count({})).subscribe(function (count) {
-                        var storms = _this.getRandomStorms();
-                        var user = new user_1.User(username, password, "1", count, false, [], storms);
+                        var storms; // = this.getRandomStorms();
+                        var user = new user_1.User(username, password, "1", count, false, [], []);
                         Observable.fromPromise(_this.userCollection.insertOne(user)).subscribe(function () {
                             return observer.onNext(TokenManager_1.TokenManager.tokenify(user));
                         });

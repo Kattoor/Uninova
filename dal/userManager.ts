@@ -54,8 +54,8 @@ export class UserManager {
                     readUser => {
                         if (readUser == null) {
                             Observable.fromPromise<number>(this.userCollection.count({})).subscribe(count => {
-                                var storms: Storm[] = this.getRandomStorms();
-                                var user: User = new User(username, password, "1", count, false, [], storms);
+                                var storms: Storm[];// = this.getRandomStorms();
+                                var user: User = new User(username, password, "1", count, false, [], []);
                                 Observable.fromPromise<InsertOneWriteOpResult>(this.userCollection.insertOne(user)).subscribe(
                                     () =>
                                         observer.onNext(TokenManager.tokenify(user)));
