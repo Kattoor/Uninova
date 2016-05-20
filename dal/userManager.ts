@@ -50,7 +50,8 @@ export class UserManager {
     public createUser(username: string, password: string): Observable<string> {
         return Observable.create<string>(
             observer => {
-                this.readUser(username).subscribe(
+                observer.onNext("hello");
+           /*     this.readUser(username).subscribe(
                     readUser => {
                         if (readUser == null) {
                             Observable.fromPromise<number>(this.userCollection.count({})).subscribe(count => {
@@ -62,7 +63,7 @@ export class UserManager {
                             });
                         } else observer.onNext("");
                     }
-                );
+                );*/
             }
         );
     }

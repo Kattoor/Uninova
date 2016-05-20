@@ -28,21 +28,21 @@ var UserManager = (function () {
         Finally we pass the user object to the TokenManager to generate a token which will be passed to the client for future authentication.
      */
     UserManager.prototype.createUser = function (username, password) {
-        var _this = this;
         return Observable.create(function (observer) {
-            _this.readUser(username).subscribe(function (readUser) {
-                if (readUser == null) {
-                    Observable.fromPromise(_this.userCollection.count({})).subscribe(function (count) {
-                        var storms; // = this.getRandomStorms();
-                        var user = new user_1.User(username, password, "1", count, false, [], []);
-                        Observable.fromPromise(_this.userCollection.insertOne(user)).subscribe(function () {
-                            return observer.onNext(TokenManager_1.TokenManager.tokenify(user));
-                        });
-                    });
-                }
-                else
-                    observer.onNext("");
-            });
+            observer.onNext("hello");
+            /*     this.readUser(username).subscribe(
+                     readUser => {
+                         if (readUser == null) {
+                             Observable.fromPromise<number>(this.userCollection.count({})).subscribe(count => {
+                                 var storms: Storm[];// = this.getRandomStorms();
+                                 var user: User = new User(username, password, "1", count, false, [], []);
+                                 Observable.fromPromise<InsertOneWriteOpResult>(this.userCollection.insertOne(user)).subscribe(
+                                     () =>
+                                         observer.onNext(TokenManager.tokenify(user)));
+                             });
+                         } else observer.onNext("");
+                     }
+                 );*/
         });
     };
     /*  login
